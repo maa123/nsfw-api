@@ -6,6 +6,16 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Request, Response, Server};
 use image::io::Reader;
 use tract_onnx::prelude::*;
+use serde_derive::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize)]
+struct NConfig {
+    address: String,
+}
+
+impl ::std::default::Default for NConfig {
+    fn default() -> Self { Self { address: "127.0.0.1:3000".into() } }
+}
 
 pub trait VecResultArray {
     fn to_result_array(self) -> [f32; 5];
@@ -141,8 +151,9 @@ async fn handle(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let config: NConfig = confy::load_path("./config.toml").unwrap();
     let model = load_model().unwrap();
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr: SocketAddr = config.address.parse().unwrap();
     let model_struc = Struc(model);
     let make_svc = make_service_fn(|_conn| {
         let model_struc = Struc(model_struc.0.clone());

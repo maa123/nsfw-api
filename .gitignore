@@ -108,3 +108,4 @@ dist
 
 /target
 model.onnx
+config.toml
