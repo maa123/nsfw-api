@@ -9,7 +9,7 @@ edition = "2021"
 confy = "0.5.1"
 hyper = { version = "0.14.26", features = ["full"] }
 image = "0.24.6"
-reqwest = "0.11.17"
+reqwest = "0.11.18"
 serde = "1.0.163"
 serde_derive = "1.0.152"
 tokio = { version = "1.26.0", features = ["full"] }
