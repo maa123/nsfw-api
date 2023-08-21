@@ -12,6 +12,6 @@ image = "0.24.6"
 reqwest = "0.11.18"
 serde = "1.0.171"
 serde_derive = "1.0.152"
-tokio = { version = "1.26.0", features = ["full"] }
+tokio = { version = "1.32.0", features = ["full"] }
 tract-onnx = "0.19.16"
 url = "2.4.0"
