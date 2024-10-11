@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 confy = "0.5.1"
 hyper = { version = "0.14.27", features = ["full"] }
-image = "0.24.6"
+image = "0.24.7"
 reqwest = "0.11.18"
 serde = "1.0.179"
 serde_derive = "1.0.152"
