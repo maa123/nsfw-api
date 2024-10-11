@@ -13,5 +13,5 @@ reqwest = "0.11.18"
 serde = "1.0.179"
 serde_derive = "1.0.152"
 tokio = { version = "1.26.0", features = ["full"] }
-tract-onnx = "0.19.16"
+tract-onnx = "0.21.7"
 url = "2.4.0"
