@@ -14,4 +14,4 @@ serde = "1.0.179"
 serde_derive = "1.0.152"
 tokio = { version = "1.41.1", features = ["full"] }
 tract-onnx = "0.21.7"
-url = "2.4.0"
+url = "2.5.4"
