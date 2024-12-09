@@ -57,6 +57,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "86fdf8605db99b54d3cd748a44c6d04df638eb5dafb219b135d0149bd0db01f6"
 
 [[package]]
+name = "anymap"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33954243bd79057c2de7338850b85983a44588021f8a5fee574a8888c6de4344"
+
+[[package]]
 name = "anymap2"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -76,7 +82,7 @@ checksum = "0ae92a5119aa49cdbcf6b9f893fe4e1d98b04ccbf82ee0584ad948a44a734dea"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.79",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -1065,7 +1071,7 @@ checksum = "c34819042dc3d3971c46c2190835914dfbe0c3c13f61449b2997f4e9722dfa60"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.79",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -1466,7 +1472,7 @@ checksum = "ed3955f1a9c7c0c15e092f9c887db08b1fc683305fdf6eb6684f22555355e202"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.79",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -1733,7 +1739,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a65f2e60fbf1063868558d69c6beacf412dc755f9fc020f514b7955fc914fe30"
 dependencies = [
  "quote",
- "syn 2.0.79",
+ "syn 2.0.90",
 ]
 
 [[package]]
@@ -2636,11 +2642,12 @@ dependencies = [
 
 [[package]]
 name = "tract-core"
-version = "0.21.7"
+version = "0.21.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0f7f982e823b593bf3a238dfa25f0c83f7647b06ef483059eb39a21946ccd9b"
+checksum = "bad467da9f9af958e8e79fc970e60efe6c53af91bdf770ef4f8bc7328cd1692e"
 dependencies = [
  "anyhow",
+ "anymap",
  "bit-set",
  "derive-new",
  "downcast-rs",
@@ -2661,9 +2668,9 @@ dependencies = [
 
 [[package]]
 name = "tract-data"
-version = "0.21.7"
+version = "0.21.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebe5517c92e26086711180ab339a422224f5c2497cb399c1cda6dca6ed545140"
+checksum = "24e1b72469023cd441e233e2c0b0cdfe223c3bffccaa13f9ef4656cae1c4bdaa"
 dependencies = [
  "anyhow",
  "downcast-rs",
@@ -2685,9 +2692,9 @@ dependencies = [
 
 [[package]]
 name = "tract-hir"
-version = "0.21.7"
+version = "0.21.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b51acfef8f5f8ce153ec9ade9a4c1061df80e2f589549926ba92f516d989f91f"
+checksum = "40fc6f807f191b6714d4a23b03351c4520e06240c092a9c600aff4ca3e6df589"
 dependencies = [
  "derive-new",
  "log",
@@ -2696,9 +2703,9 @@ dependencies = [
 
 [[package]]
 name = "tract-linalg"
-version = "0.21.7"
+version = "0.21.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad0506e62347d2f3a6bb6a6ad647b4200a11e58be4ca5ba9622e9689bb8ec6c1"
+checksum = "a77effa098a0cf5b63de86b4f494f9444815df4c0cff6ca6b4d25d34574a8aa1"
 dependencies = [
  "byteorder",
  "cc",
@@ -2724,9 +2731,9 @@ dependencies = [
 
 [[package]]
 name = "tract-nnef"
-version = "0.21.7"
+version = "0.21.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2827eed28481b2a7fd32131840af4b4937721ea514960223a9ae2767f3a57201"
+checksum = "14801c5445280964a36f9e8e5bd8726a9a77cf1ff8d84f052797bf32237660d8"
 dependencies = [
  "byteorder",
  "flate2",
@@ -2739,9 +2746,9 @@ dependencies = [
 
 [[package]]
 name = "tract-onnx"
-version = "0.21.7"
+version = "0.21.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25115886fba190b86c777f267b3f8d0122747b29360f15ea5bd8bbc0557c9680"
+checksum = "cc585197a0b8c01b5ba16604290574dcce9466c1d96c3134fb8f4ff1959bc5cc"
 dependencies = [
  "bytes",
  "derive-new",
@@ -2757,9 +2764,9 @@ dependencies = [
 
 [[package]]
 name = "tract-onnx-opl"
-version = "0.21.7"
+version = "0.21.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9f5449dd4ccd3de145f0a219aaeb7c1bbe909a54eb1e3b4229c5499315a0615"
+checksum = "4d344e58318d667854046867ee550e8972e91e98ab69811201ab29ea9b9bb07a"
 dependencies = [
  "getrandom",
  "log",
