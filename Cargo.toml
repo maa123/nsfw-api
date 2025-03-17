@@ -10,7 +10,7 @@ confy = "0.6.1"
 hyper = { version = "0.14.27", features = ["full"] }
 image = "0.25.5"
 reqwest = "0.12.12"
-serde = "1.0.215"
+serde = "1.0.219"
 serde_derive = "1.0.152"
 tokio = { version = "1.44.1", features = ["full"] }
 tract-onnx = "0.21.8"
