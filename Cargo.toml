@@ -7,11 +7,13 @@ edition = "2021"
 
 [dependencies]
 confy = "0.6.1"
-hyper = { version = "0.14.27", features = ["full"] }
+hyper = { version = "1.6.0", features = ["full"] }
+hyper-util = { version = "0.1.14", features = ["full"] }
+http-body-util = "0.1.3"
 image = "0.25.6"
-reqwest = "0.12.18"
+reqwest = "0.12.20"
 serde = "1.0.219"
-serde_derive = "1.0.152"
+serde_derive = "1.0.219"
 tokio = { version = "1.45.1", features = ["full"] }
-tract-onnx = "0.21.12"
+tract-onnx = "0.21.13"
 url = "2.5.4"

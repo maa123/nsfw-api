@@ -2,9 +2,14 @@ use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::time::Instant;
 
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Request, Response, Server};
-use image::io::Reader;
+use hyper::server::conn::http1;
+use hyper::service::service_fn;
+use hyper::{Request, Response};
+use hyper::body::{Bytes, Incoming};
+use hyper_util::rt::TokioIo;
+use http_body_util::{BodyExt, Full};
+use tokio::net::TcpListener;
+use image::ImageReader;
 use tract_onnx::prelude::*;
 use serde_derive::{Serialize, Deserialize};
 
@@ -39,9 +44,10 @@ async fn fetch(url: &str) -> Result<std::io::Cursor<Vec<u8>>, reqwest::Error> {
     Ok(std::io::Cursor::new(body.to_vec()))
 }
 
-async fn get_body(body: Body) -> Result<std::io::Cursor<Vec<u8>>, hyper::Error> {
-    let body = hyper::body::to_bytes(body).await?;
-    Ok(std::io::Cursor::new(body.to_vec()))
+async fn get_body(body: Incoming) -> Result<std::io::Cursor<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
+    let collected = body.collect().await?;
+    let body_bytes = collected.to_bytes();
+    Ok(std::io::Cursor::new(body_bytes.to_vec()))
 }
 
 fn load_model() -> Result<Graph<TypedFact, Box<dyn TypedOp>>, ()> {
@@ -73,9 +79,9 @@ async fn run(
 }
 
 async fn handle(
-    req: Request<Body>,
+    req: Request<Incoming>,
     model: Struc<Graph<TypedFact, Box<dyn TypedOp>>>,
-) -> Result<Response<Body>, Infallible> {
+) -> Result<Response<Full<Bytes>>, Infallible> {
     let model = model.0;
     match req.method() {
         &hyper::Method::GET => {
@@ -86,7 +92,7 @@ async fn handle(
             {
                 let img = fetch(img_url.as_str()).await;
                 if let Ok(img) = img {
-                    let img = Reader::new(img)
+                    let img = ImageReader::new(img)
                         .with_guessed_format()
                         .unwrap()
                         .decode()
@@ -98,26 +104,26 @@ async fn handle(
                             .status(200)
                             .header("Content-Type", "application/json")
                             .header("NC-time", res.time.to_string())
-                            .body(Body::from(format!("{:?}", res.result)))
+                            .body(Full::new(Bytes::from(format!("{:?}", res.result))))
                             .unwrap();
                         return Ok(response);
                     }
                 }
                 let internal_server_error = Response::builder()
                     .status(500)
-                    .body(Body::from("Internal Server Error"))
+                    .body(Full::new(Bytes::from("Internal Server Error")))
                     .unwrap();
                 return Ok(internal_server_error);
             }
             let bad_request = Response::builder()
                 .status(400)
-                .body(Body::from("Bad Request"))
+                .body(Full::new(Bytes::from("Bad Request")))
                 .unwrap();
             Ok(bad_request)
         }
         &hyper::Method::POST => {
             let body = get_body(req.into_body()).await.unwrap();
-            let img = Reader::new(body)
+            let img = ImageReader::new(body)
                 .with_guessed_format()
                 .unwrap()
                 .decode()
@@ -129,20 +135,20 @@ async fn handle(
                     .status(200)
                     .header("Content-Type", "application/json")
                     .header("NC-time", res.time.to_string())
-                    .body(Body::from(format!("{:?}", res.result)))
+                    .body(Full::new(Bytes::from(format!("{:?}", res.result))))
                     .unwrap();
                 return Ok(response);
             }
             let internal_server_error = Response::builder()
                 .status(500)
-                .body(Body::from("Internal Server Error"))
+                .body(Full::new(Bytes::from("Internal Server Error")))
                 .unwrap();
             Ok(internal_server_error)
         }
         _ => {
             let not_found = Response::builder()
                 .status(404)
-                .body(Body::from("Not Found"))
+                .body(Full::new(Bytes::from("Not Found")))
                 .unwrap();
             Ok(not_found)
         }
@@ -155,17 +161,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let model = load_model().unwrap();
     let addr: SocketAddr = config.address.parse().unwrap();
     let model_struc = Struc(model);
-    let make_svc = make_service_fn(|_conn| {
-        let model_struc = Struc(model_struc.0.clone());
-        async {
-            Ok::<_, Infallible>(service_fn(move |req| {
-                let model_struc = Struc(model_struc.0.clone());
-                handle(req, model_struc)
-            }))
-        }
-    });
-    let server = Server::bind(&addr).serve(make_svc);
+    
+    let listener = TcpListener::bind(addr).await?;
     println!("Listening on http://{}", addr);
-    server.await?;
-    Ok(())
+
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let io = TokioIo::new(stream);
+        let model_clone = Struc(model_struc.0.clone());
+
+        tokio::task::spawn(async move {
+            if let Err(err) = http1::Builder::new()
+                .serve_connection(io, service_fn(move |req| {
+                    let model_clone = Struc(model_clone.0.clone());
+                    handle(req, model_clone)
+                }))
+                .await
+            {
+                eprintln!("Error serving connection: {:?}", err);
+            }
+        });
+    }
 }
