@@ -71,21 +71,44 @@ fn load_model() -> Result<Graph<TypedFact, Box<dyn TypedOp>>, ()> {
     Ok(model)
 }
 
+fn is_ssrf_blocked(host: &str) -> bool {
+    use std::net::IpAddr;
+    if host.is_empty() || host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return match ip {
+            IpAddr::V4(v4) => {
+                v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
+            }
+            IpAddr::V6(v6) => {
+                v6.is_loopback()
+                    || v6.is_unspecified()
+                    || (v6.segments()[0] & 0xfe00) == 0xfc00 // fc00::/7 ULA
+                    || (v6.segments()[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
+            }
+        };
+    }
+    false
+}
+
 async fn run(
     img: image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
     model: Graph<TypedFact, Box<dyn TypedOp>>,
 ) -> Result<CheckResult, ()> {
-    let plan = SimplePlan::new(model).map_err(|_| ())?;
+    let plan = SimplePlan::new(model).map_err(|e| eprintln!("model plan error: {e}"))?;
     let start = Instant::now();
     let img = image::imageops::resize(&img, 224, 224, image::imageops::FilterType::Triangle);
     let image: Tensor = tract_ndarray::Array4::from_shape_fn((1, 3, 224, 224), |(_, c, y, x)| {
         (img[(x as _, y as _)][c] as f32) / 255.0
     })
     .into();
-    let result = plan.run(tvec!(image.into())).map_err(|_| ())?;
+    let result = plan
+        .run(tvec!(image.into()))
+        .map_err(|e| eprintln!("model run error: {e}"))?;
     let result: Vec<f32> = result[0]
         .to_array_view::<f32>()
-        .map_err(|_| ())?
+        .map_err(|e| eprintln!("model output error: {e}"))?
         .iter()
         .map(|v| *v)
         .collect();
@@ -125,14 +148,7 @@ async fn handle(
                     return Ok(bad_request);
                 }
                 let host = parsed_url.host_str().unwrap_or("");
-                if host.is_empty()
-                    || host == "localhost"
-                    || host == "127.0.0.1"
-                    || host == "::1"
-                    || host.starts_with("169.254.")
-                    || host.starts_with("10.")
-                    || host.starts_with("192.168.")
-                {
+                if is_ssrf_blocked(host) {
                     let bad_request = Response::builder()
                         .status(400)
                         .body(body_from("Bad Request"))
