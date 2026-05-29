@@ -1,6 +1,7 @@
 use std::convert::Infallible;
 use std::io::Cursor;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::time::Instant;
 
 use http_body_util::{BodyExt, Full};
@@ -12,6 +13,7 @@ use hyper_util::rt::TokioIo;
 use image::ImageReader;
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpListener;
+use tokio::sync::Semaphore;
 use tract_onnx::prelude::*;
 
 #[derive(Serialize, Deserialize)]
@@ -50,14 +52,14 @@ fn body_from<T: Into<Bytes>>(body: T) -> RespBody {
     Full::new(body.into())
 }
 
-async fn fetch(url: &str) -> Result<Cursor<Vec<u8>>, reqwest::Error> {
+async fn fetch(url: &str) -> Result<Cursor<Bytes>, reqwest::Error> {
     let body = reqwest::get(url).await?.bytes().await?;
-    Ok(Cursor::new(body.to_vec()))
+    Ok(Cursor::new(body))
 }
 
-async fn get_body(body: Incoming) -> Result<Cursor<Vec<u8>>, hyper::Error> {
+async fn get_body(body: Incoming) -> Result<Cursor<Bytes>, hyper::Error> {
     let body = body.collect().await?.to_bytes();
-    Ok(Cursor::new(body.to_vec()))
+    Ok(Cursor::new(body))
 }
 
 fn load_model() -> Result<Graph<TypedFact, Box<dyn TypedOp>>, ()> {
@@ -107,12 +109,26 @@ async fn handle(
             {
                 let img = fetch(img_url.as_str()).await;
                 if let Ok(img) = img {
-                    let img = ImageReader::new(img)
-                        .with_guessed_format()
-                        .unwrap()
-                        .decode()
-                        .unwrap()
-                        .to_rgb8();
+                    let reader = match ImageReader::new(img).with_guessed_format() {
+                        Ok(r) => r,
+                        Err(_) => {
+                            let bad_request = Response::builder()
+                                .status(400)
+                                .body(body_from("Bad Request"))
+                                .unwrap();
+                            return Ok(bad_request);
+                        }
+                    };
+                    let img = match reader.decode() {
+                        Ok(img) => img.to_rgb8(),
+                        Err(_) => {
+                            let bad_request = Response::builder()
+                                .status(400)
+                                .body(body_from("Bad Request"))
+                                .unwrap();
+                            return Ok(bad_request);
+                        }
+                    };
                     let res = run(img, model).await;
                     if let Ok(res) = res {
                         let response = Response::builder()
@@ -137,13 +153,36 @@ async fn handle(
             Ok(bad_request)
         }
         &Method::POST => {
-            let body = get_body(req.into_body()).await.unwrap();
-            let img = ImageReader::new(body)
-                .with_guessed_format()
-                .unwrap()
-                .decode()
-                .unwrap()
-                .to_rgb8();
+            let body = match get_body(req.into_body()).await {
+                Ok(b) => b,
+                Err(_) => {
+                    let bad_request = Response::builder()
+                        .status(400)
+                        .body(body_from("Bad Request"))
+                        .unwrap();
+                    return Ok(bad_request);
+                }
+            };
+            let reader = match ImageReader::new(body).with_guessed_format() {
+                Ok(r) => r,
+                Err(_) => {
+                    let bad_request = Response::builder()
+                        .status(400)
+                        .body(body_from("Bad Request"))
+                        .unwrap();
+                    return Ok(bad_request);
+                }
+            };
+            let img = match reader.decode() {
+                Ok(img) => img.to_rgb8(),
+                Err(_) => {
+                    let bad_request = Response::builder()
+                        .status(400)
+                        .body(body_from("Bad Request"))
+                        .unwrap();
+                    return Ok(bad_request);
+                }
+            };
             let res = run(img, model).await;
             if let Ok(res) = res {
                 let response = Response::builder()
@@ -178,12 +217,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let listener = TcpListener::bind(addr).await?;
     println!("Listening on http://{}", addr);
 
+    let semaphore = Arc::new(Semaphore::new(1024));
+
     loop {
         let (stream, _) = listener.accept().await?;
+        let permit = match Arc::clone(&semaphore).acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
         let io = TokioIo::new(stream);
         let model = model.clone();
 
         tokio::task::spawn(async move {
+            let _permit = permit;
             let service = service_fn(move |req| {
                 let model_struc = Struc(model.clone());
                 handle(req, model_struc)
