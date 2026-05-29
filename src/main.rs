@@ -75,17 +75,17 @@ async fn run(
     img: image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
     model: Graph<TypedFact, Box<dyn TypedOp>>,
 ) -> Result<CheckResult, ()> {
-    let plan = SimplePlan::new(model).unwrap();
+    let plan = SimplePlan::new(model).map_err(|_| ())?;
     let start = Instant::now();
     let img = image::imageops::resize(&img, 224, 224, image::imageops::FilterType::Triangle);
     let image: Tensor = tract_ndarray::Array4::from_shape_fn((1, 3, 224, 224), |(_, c, y, x)| {
         (img[(x as _, y as _)][c] as f32) / 255.0
     })
     .into();
-    let result = plan.run(tvec!(image.into())).unwrap();
+    let result = plan.run(tvec!(image.into())).map_err(|_| ())?;
     let result: Vec<f32> = result[0]
         .to_array_view::<f32>()
-        .unwrap()
+        .map_err(|_| ())?
         .iter()
         .map(|v| *v)
         .collect();
@@ -107,6 +107,38 @@ async fn handle(
                     .find(|(k, _)| k == "url")
                     .map(|(_, v)| v.to_string())
             {
+                let parsed_url = match url::Url::parse(&img_url) {
+                    Ok(u) => u,
+                    Err(_) => {
+                        let bad_request = Response::builder()
+                            .status(400)
+                            .body(body_from("Bad Request"))
+                            .unwrap();
+                        return Ok(bad_request);
+                    }
+                };
+                if !matches!(parsed_url.scheme(), "http" | "https") {
+                    let bad_request = Response::builder()
+                        .status(400)
+                        .body(body_from("Bad Request"))
+                        .unwrap();
+                    return Ok(bad_request);
+                }
+                let host = parsed_url.host_str().unwrap_or("");
+                if host.is_empty()
+                    || host == "localhost"
+                    || host == "127.0.0.1"
+                    || host == "::1"
+                    || host.starts_with("169.254.")
+                    || host.starts_with("10.")
+                    || host.starts_with("192.168.")
+                {
+                    let bad_request = Response::builder()
+                        .status(400)
+                        .body(body_from("Bad Request"))
+                        .unwrap();
+                    return Ok(bad_request);
+                }
                 let img = fetch(img_url.as_str()).await;
                 if let Ok(img) = img {
                     let reader = match ImageReader::new(img).with_guessed_format() {
