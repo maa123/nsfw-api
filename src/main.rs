@@ -3,6 +3,7 @@ use std::io::Cursor;
 use std::net::SocketAddr;
 use std::time::Instant;
 
+use anyhow::{Context, Result};
 use http_body_util::{BodyExt, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::server::conn::http1;
@@ -28,12 +29,14 @@ impl ::std::default::Default for NConfig {
 }
 
 pub trait VecResultArray {
-    fn to_result_array(self) -> [f32; 5];
+    fn to_result_array(self) -> Result<[f32; 5]>;
 }
 
 impl VecResultArray for Vec<f32> {
-    fn to_result_array(self) -> [f32; 5] {
-        self.try_into().unwrap()
+    fn to_result_array(self) -> Result<[f32; 5]> {
+        let len = self.len();
+        self.try_into()
+            .map_err(|_| anyhow::anyhow!("Expected 5 model outputs, got {len}"))
     }
 }
 
@@ -60,37 +63,46 @@ async fn get_body(body: Incoming) -> Result<Cursor<Vec<u8>>, hyper::Error> {
     Ok(Cursor::new(body.to_vec()))
 }
 
-fn load_model() -> Result<Graph<TypedFact, Box<dyn TypedOp>>, ()> {
+fn load_model() -> Result<Graph<TypedFact, Box<dyn TypedOp>>> {
     let model = tract_onnx::onnx()
         .model_for_path("model.onnx")
-        .unwrap()
+        .context("Failed to load model from model.onnx")?
         .into_optimized()
-        .unwrap();
+        .context("Failed to optimize model")?;
     Ok(model)
 }
 
 async fn run(
     img: image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
     model: Graph<TypedFact, Box<dyn TypedOp>>,
-) -> Result<CheckResult, ()> {
-    let plan = SimplePlan::new(model).unwrap();
+) -> Result<CheckResult> {
+    let plan = SimplePlan::new(model).context("Failed to create inference plan")?;
     let start = Instant::now();
     let img = image::imageops::resize(&img, 224, 224, image::imageops::FilterType::Triangle);
     let image: Tensor = tract_ndarray::Array4::from_shape_fn((1, 3, 224, 224), |(_, c, y, x)| {
         (img[(x as _, y as _)][c] as f32) / 255.0
     })
     .into();
-    let result = plan.run(tvec!(image.into())).unwrap();
+    let result = plan
+        .run(tvec!(image.into()))
+        .context("Failed to run model inference")?;
     let result: Vec<f32> = result[0]
         .to_array_view::<f32>()
-        .unwrap()
+        .context("Failed to read inference result")?
         .iter()
-        .map(|v| *v)
+        .copied()
         .collect();
     Ok(CheckResult {
-        result: result.to_result_array(),
+        result: result.to_result_array()?,
         time: start.elapsed().as_millis(),
     })
+}
+
+fn internal_server_error() -> Response<RespBody> {
+    Response::builder()
+        .status(500)
+        .body(body_from("Internal Server Error"))
+        .expect("Failed to build 500 response")
 }
 
 async fn handle(
@@ -105,66 +117,68 @@ async fn handle(
                     .find(|(k, _)| k == "url")
                     .map(|(_, v)| v.to_string())
             {
-                let img = fetch(img_url.as_str()).await;
-                if let Ok(img) = img {
+                let result: Result<Response<RespBody>> = async {
+                    let img = fetch(img_url.as_str()).await.context("Failed to fetch image")?;
                     let img = ImageReader::new(img)
                         .with_guessed_format()
-                        .unwrap()
+                        .context("Failed to guess image format")?
                         .decode()
-                        .unwrap()
+                        .context("Failed to decode image")?
                         .to_rgb8();
-                    let res = run(img, model).await;
-                    if let Ok(res) = res {
-                        let response = Response::builder()
-                            .status(200)
-                            .header("Content-Type", "application/json")
-                            .header("NC-time", res.time.to_string())
-                            .body(body_from(format!("{:?}", res.result)))
-                            .unwrap();
-                        return Ok(response);
-                    }
+                    let res = run(img, model).await?;
+                    let response = Response::builder()
+                        .status(200)
+                        .header("Content-Type", "application/json")
+                        .header("NC-time", res.time.to_string())
+                        .body(body_from(format!("{:?}", res.result)))
+                        .expect("Failed to build 200 response");
+                    Ok(response)
                 }
-                let internal_server_error = Response::builder()
-                    .status(500)
-                    .body(body_from("Internal Server Error"))
-                    .unwrap();
-                return Ok(internal_server_error);
+                .await;
+
+                return Ok(result.unwrap_or_else(|err| {
+                    eprintln!("Error handling GET request: {err:#}");
+                    internal_server_error()
+                }));
             }
             let bad_request = Response::builder()
                 .status(400)
                 .body(body_from("Bad Request"))
-                .unwrap();
+                .expect("Failed to build 400 response");
             Ok(bad_request)
         }
         &Method::POST => {
-            let body = get_body(req.into_body()).await.unwrap();
-            let img = ImageReader::new(body)
-                .with_guessed_format()
-                .unwrap()
-                .decode()
-                .unwrap()
-                .to_rgb8();
-            let res = run(img, model).await;
-            if let Ok(res) = res {
+            let result: Result<Response<RespBody>> = async {
+                let body = get_body(req.into_body())
+                    .await
+                    .context("Failed to read request body")?;
+                let img = ImageReader::new(body)
+                    .with_guessed_format()
+                    .context("Failed to guess image format")?
+                    .decode()
+                    .context("Failed to decode image")?
+                    .to_rgb8();
+                let res = run(img, model).await?;
                 let response = Response::builder()
                     .status(200)
                     .header("Content-Type", "application/json")
                     .header("NC-time", res.time.to_string())
                     .body(body_from(format!("{:?}", res.result)))
-                    .unwrap();
-                return Ok(response);
+                    .expect("Failed to build 200 response");
+                Ok(response)
             }
-            let internal_server_error = Response::builder()
-                .status(500)
-                .body(body_from("Internal Server Error"))
-                .unwrap();
-            Ok(internal_server_error)
+            .await;
+
+            Ok(result.unwrap_or_else(|err| {
+                eprintln!("Error handling POST request: {err:#}");
+                internal_server_error()
+            }))
         }
         _ => {
             let not_found = Response::builder()
                 .status(404)
                 .body(body_from("Not Found"))
-                .unwrap();
+                .expect("Failed to build 404 response");
             Ok(not_found)
         }
     }
@@ -172,9 +186,9 @@ async fn handle(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let config: NConfig = confy::load_path("./config.toml").unwrap();
-    let model = load_model().unwrap();
-    let addr: SocketAddr = config.address.parse().unwrap();
+    let config: NConfig = confy::load_path("./config.toml")?;
+    let model = load_model()?;
+    let addr: SocketAddr = config.address.parse()?;
     let listener = TcpListener::bind(addr).await?;
     println!("Listening on http://{}", addr);
 
