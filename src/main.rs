@@ -1,7 +1,6 @@
 use std::convert::Infallible;
 use std::io::Cursor;
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::time::Instant;
 
 use http_body_util::{BodyExt, Full};
@@ -13,7 +12,6 @@ use hyper_util::rt::TokioIo;
 use image::ImageReader;
 use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpListener;
-use tokio::sync::Semaphore;
 use tract_onnx::prelude::*;
 
 #[derive(Serialize, Deserialize)]
@@ -52,14 +50,14 @@ fn body_from<T: Into<Bytes>>(body: T) -> RespBody {
     Full::new(body.into())
 }
 
-async fn fetch(url: &str) -> Result<Cursor<Bytes>, reqwest::Error> {
+async fn fetch(url: &str) -> Result<Cursor<Vec<u8>>, reqwest::Error> {
     let body = reqwest::get(url).await?.bytes().await?;
-    Ok(Cursor::new(body))
+    Ok(Cursor::new(body.to_vec()))
 }
 
-async fn get_body(body: Incoming) -> Result<Cursor<Bytes>, hyper::Error> {
+async fn get_body(body: Incoming) -> Result<Cursor<Vec<u8>>, hyper::Error> {
     let body = body.collect().await?.to_bytes();
-    Ok(Cursor::new(body))
+    Ok(Cursor::new(body.to_vec()))
 }
 
 fn load_model() -> Result<Graph<TypedFact, Box<dyn TypedOp>>, ()> {
@@ -71,44 +69,21 @@ fn load_model() -> Result<Graph<TypedFact, Box<dyn TypedOp>>, ()> {
     Ok(model)
 }
 
-fn is_ssrf_blocked(host: &str) -> bool {
-    use std::net::IpAddr;
-    if host.is_empty() || host.eq_ignore_ascii_case("localhost") {
-        return true;
-    }
-    if let Ok(ip) = host.parse::<IpAddr>() {
-        return match ip {
-            IpAddr::V4(v4) => {
-                v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()
-            }
-            IpAddr::V6(v6) => {
-                v6.is_loopback()
-                    || v6.is_unspecified()
-                    || (v6.segments()[0] & 0xfe00) == 0xfc00 // fc00::/7 ULA
-                    || (v6.segments()[0] & 0xffc0) == 0xfe80 // fe80::/10 link-local
-            }
-        };
-    }
-    false
-}
-
 async fn run(
     img: image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
     model: Graph<TypedFact, Box<dyn TypedOp>>,
 ) -> Result<CheckResult, ()> {
-    let plan = SimplePlan::new(model).map_err(|e| eprintln!("model plan error: {e}"))?;
+    let plan = SimplePlan::new(model).unwrap();
     let start = Instant::now();
     let img = image::imageops::resize(&img, 224, 224, image::imageops::FilterType::Triangle);
     let image: Tensor = tract_ndarray::Array4::from_shape_fn((1, 3, 224, 224), |(_, c, y, x)| {
         (img[(x as _, y as _)][c] as f32) / 255.0
     })
     .into();
-    let result = plan
-        .run(tvec!(image.into()))
-        .map_err(|e| eprintln!("model run error: {e}"))?;
+    let result = plan.run(tvec!(image.into())).unwrap();
     let result: Vec<f32> = result[0]
         .to_array_view::<f32>()
-        .map_err(|e| eprintln!("model output error: {e}"))?
+        .unwrap()
         .iter()
         .map(|v| *v)
         .collect();
@@ -130,62 +105,14 @@ async fn handle(
                     .find(|(k, _)| k == "url")
                     .map(|(_, v)| v.to_string())
             {
-                let parsed_url = match url::Url::parse(&img_url) {
-                    Ok(u) => u,
-                    Err(_) => {
-                        let bad_request = Response::builder()
-                            .status(400)
-                            .body(body_from("Bad Request"))
-                            .unwrap();
-                        return Ok(bad_request);
-                    }
-                };
-                if !matches!(parsed_url.scheme(), "http" | "https") {
-                    let bad_request = Response::builder()
-                        .status(400)
-                        .body(body_from("Bad Request"))
-                        .unwrap();
-                    return Ok(bad_request);
-                }
-                let host = match parsed_url.host_str() {
-                    Some(h) => h,
-                    None => {
-                        let bad_request = Response::builder()
-                            .status(400)
-                            .body(body_from("Bad Request"))
-                            .unwrap();
-                        return Ok(bad_request);
-                    }
-                };
-                if is_ssrf_blocked(host) {
-                    let bad_request = Response::builder()
-                        .status(400)
-                        .body(body_from("Bad Request"))
-                        .unwrap();
-                    return Ok(bad_request);
-                }
                 let img = fetch(img_url.as_str()).await;
                 if let Ok(img) = img {
-                    let reader = match ImageReader::new(img).with_guessed_format() {
-                        Ok(r) => r,
-                        Err(_) => {
-                            let bad_request = Response::builder()
-                                .status(400)
-                                .body(body_from("Bad Request"))
-                                .unwrap();
-                            return Ok(bad_request);
-                        }
-                    };
-                    let img = match reader.decode() {
-                        Ok(img) => img.to_rgb8(),
-                        Err(_) => {
-                            let bad_request = Response::builder()
-                                .status(400)
-                                .body(body_from("Bad Request"))
-                                .unwrap();
-                            return Ok(bad_request);
-                        }
-                    };
+                    let img = ImageReader::new(img)
+                        .with_guessed_format()
+                        .unwrap()
+                        .decode()
+                        .unwrap()
+                        .to_rgb8();
                     let res = run(img, model).await;
                     if let Ok(res) = res {
                         let response = Response::builder()
@@ -210,36 +137,13 @@ async fn handle(
             Ok(bad_request)
         }
         &Method::POST => {
-            let body = match get_body(req.into_body()).await {
-                Ok(b) => b,
-                Err(_) => {
-                    let bad_request = Response::builder()
-                        .status(400)
-                        .body(body_from("Bad Request"))
-                        .unwrap();
-                    return Ok(bad_request);
-                }
-            };
-            let reader = match ImageReader::new(body).with_guessed_format() {
-                Ok(r) => r,
-                Err(_) => {
-                    let bad_request = Response::builder()
-                        .status(400)
-                        .body(body_from("Bad Request"))
-                        .unwrap();
-                    return Ok(bad_request);
-                }
-            };
-            let img = match reader.decode() {
-                Ok(img) => img.to_rgb8(),
-                Err(_) => {
-                    let bad_request = Response::builder()
-                        .status(400)
-                        .body(body_from("Bad Request"))
-                        .unwrap();
-                    return Ok(bad_request);
-                }
-            };
+            let body = get_body(req.into_body()).await.unwrap();
+            let img = ImageReader::new(body)
+                .with_guessed_format()
+                .unwrap()
+                .decode()
+                .unwrap()
+                .to_rgb8();
             let res = run(img, model).await;
             if let Ok(res) = res {
                 let response = Response::builder()
@@ -274,19 +178,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let listener = TcpListener::bind(addr).await?;
     println!("Listening on http://{}", addr);
 
-    let semaphore = Arc::new(Semaphore::new(1024));
-
     loop {
         let (stream, _) = listener.accept().await?;
-        let permit = match Arc::clone(&semaphore).acquire_owned().await {
-            Ok(p) => p,
-            Err(_) => continue,
-        };
         let io = TokioIo::new(stream);
         let model = model.clone();
 
         tokio::task::spawn(async move {
-            let _permit = permit;
             let service = service_fn(move |req| {
                 let model_struc = Struc(model.clone());
                 handle(req, model_struc)
