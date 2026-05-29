@@ -147,7 +147,16 @@ async fn handle(
                         .unwrap();
                     return Ok(bad_request);
                 }
-                let host = parsed_url.host_str().unwrap_or("");
+                let host = match parsed_url.host_str() {
+                    Some(h) => h,
+                    None => {
+                        let bad_request = Response::builder()
+                            .status(400)
+                            .body(body_from("Bad Request"))
+                            .unwrap();
+                        return Ok(bad_request);
+                    }
+                };
                 if is_ssrf_blocked(host) {
                     let bad_request = Response::builder()
                         .status(400)
