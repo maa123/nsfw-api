@@ -8,9 +8,9 @@ use hyper::body::{Bytes, Incoming};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response};
-use serde_derive::{Serialize, Deserialize};
-use image::ImageReader;
 use hyper_util::rt::TokioIo;
+use image::ImageReader;
+use serde_derive::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 use tract_onnx::prelude::*;
 
@@ -20,7 +20,11 @@ struct NConfig {
 }
 
 impl ::std::default::Default for NConfig {
-    fn default() -> Self { Self { address: "127.0.0.1:3000".into() } }
+    fn default() -> Self {
+        Self {
+            address: "127.0.0.1:3000".into(),
+        }
+    }
 }
 
 pub trait VecResultArray {
@@ -77,7 +81,12 @@ async fn run(
     })
     .into();
     let result = plan.run(tvec!(image.into())).unwrap();
-    let result: Vec<f32> = result[0].to_array_view::<f32>().unwrap().iter().map(|v| *v).collect();
+    let result: Vec<f32> = result[0]
+        .to_array_view::<f32>()
+        .unwrap()
+        .iter()
+        .map(|v| *v)
+        .collect();
     Ok(CheckResult {
         result: result.to_result_array(),
         time: start.elapsed().as_millis(),
