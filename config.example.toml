@@ -1,9 +1,9 @@
-# NSFW API Configuration Sample
-# Copy this file to config.toml and adjust the settings as needed
+# NSFW API設定サンプル
+# このファイルをconfig.tomlにコピーして、必要に応じて設定を調整してください
 
-# Server address to bind to
-# Format: "host:port"
-# Examples:
-#   "127.0.0.1:3000" - Only accessible from localhost on port 3000
-#   "0.0.0.0:3000"   - Accessible from any network interface on port 3000
+# バインドするサーバーアドレス
+# フォーマット: "host:port"
+# 例：
+#   "127.0.0.1:3000" - localhostからのみアクセス可能（ポート3000）
+#   "0.0.0.0:3000"   - 任意のネットワークインターフェースからアクセス可能（ポート3000）
 address = "127.0.0.1:3000"
