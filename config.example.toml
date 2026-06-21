@@ -1,0 +1,9 @@
+# NSFW API Configuration Sample
+# Copy this file to config.toml and adjust the settings as needed
+
+# Server address to bind to
+# Format: "host:port"
+# Examples:
+#   "127.0.0.1:3000" - Only accessible from localhost on port 3000
+#   "0.0.0.0:3000"   - Accessible from any network interface on port 3000
+address = "127.0.0.1:3000"
