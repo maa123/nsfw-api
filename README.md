@@ -10,4 +10,6 @@
 cp config.example.toml config.toml
 ```
 
-`config.toml` を編集して、サーバーアドレスなどの設定を行ってください。
+`config.toml` を編集して、サーバーアドレスや `NC-time` ヘッダーの有無などの設定を行ってください。
+
+`add_nc_time_header = false` を設定すると、レスポンスヘッダーへ `NC-time` を追加しません。

@@ -18,12 +18,14 @@ use tract_onnx::prelude::*;
 #[derive(Serialize, Deserialize)]
 struct NConfig {
     address: String,
+    add_nc_time_header: bool,
 }
 
 impl ::std::default::Default for NConfig {
     fn default() -> Self {
         Self {
             address: "127.0.0.1:3000".into(),
+            add_nc_time_header: true,
         }
     }
 }
@@ -108,6 +110,7 @@ fn internal_server_error() -> Response<RespBody> {
 async fn handle(
     req: Request<Incoming>,
     model: Struc<Graph<TypedFact, Box<dyn TypedOp>>>,
+    add_nc_time_header: bool,
 ) -> Result<Response<RespBody>, Infallible> {
     let model = model.0;
     match req.method() {
@@ -126,10 +129,13 @@ async fn handle(
                         .context("Failed to decode image")?
                         .to_rgb8();
                     let res = run(img, model).await?;
-                    let response = Response::builder()
-                        .status(200)
-                        .header("Content-Type", "application/json")
-                        .header("NC-time", res.time.to_string())
+                    let mut response_builder = Response::builder();
+                    response_builder = response_builder.status(200);
+                    response_builder = response_builder.header("Content-Type", "application/json");
+                    if add_nc_time_header {
+                        response_builder = response_builder.header("NC-time", res.time.to_string());
+                    }
+                    let response = response_builder
                         .body(body_from(format!("{:?}", res.result)))
                         .expect("Failed to build 200 response");
                     Ok(response)
@@ -159,10 +165,13 @@ async fn handle(
                     .context("Failed to decode image")?
                     .to_rgb8();
                 let res = run(img, model).await?;
-                let response = Response::builder()
-                    .status(200)
-                    .header("Content-Type", "application/json")
-                    .header("NC-time", res.time.to_string())
+                let mut response_builder = Response::builder();
+                response_builder = response_builder.status(200);
+                response_builder = response_builder.header("Content-Type", "application/json");
+                if add_nc_time_header {
+                    response_builder = response_builder.header("NC-time", res.time.to_string());
+                }
+                let response = response_builder
                     .body(body_from(format!("{:?}", res.result)))
                     .expect("Failed to build 200 response");
                 Ok(response)
@@ -189,6 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let config: NConfig = confy::load_path("./config.toml")?;
     let model = load_model()?;
     let addr: SocketAddr = config.address.parse()?;
+    let add_nc_time_header = config.add_nc_time_header;
     let listener = TcpListener::bind(addr).await?;
     println!("Listening on http://{}", addr);
 
@@ -200,7 +210,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         tokio::task::spawn(async move {
             let service = service_fn(move |req| {
                 let model_struc = Struc(model.clone());
-                handle(req, model_struc)
+                handle(req, model_struc, add_nc_time_header)
             });
 
             if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
