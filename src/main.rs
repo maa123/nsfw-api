@@ -107,6 +107,18 @@ fn internal_server_error() -> Response<RespBody> {
         .expect("Failed to build 500 response")
 }
 
+fn build_json_response(time: u128, add_nc_time_header: bool, body: String) -> Response<RespBody> {
+    let mut builder = Response::builder()
+        .status(200)
+        .header("Content-Type", "application/json");
+    if add_nc_time_header {
+        builder = builder.header("NC-time", time.to_string());
+    }
+    builder
+        .body(body_from(body))
+        .expect("Failed to build 200 response")
+}
+
 async fn handle(
     req: Request<Incoming>,
     model: Struc<Graph<TypedFact, Box<dyn TypedOp>>>,
@@ -121,7 +133,9 @@ async fn handle(
                     .map(|(_, v)| v.to_string())
             {
                 let result: Result<Response<RespBody>> = async {
-                    let img = fetch(img_url.as_str()).await.context("Failed to fetch image")?;
+                    let img = fetch(img_url.as_str())
+                        .await
+                        .context("Failed to fetch image")?;
                     let img = ImageReader::new(img)
                         .with_guessed_format()
                         .context("Failed to guess image format")?
@@ -129,15 +143,11 @@ async fn handle(
                         .context("Failed to decode image")?
                         .to_rgb8();
                     let res = run(img, model).await?;
-                    let mut response_builder = Response::builder();
-                    response_builder = response_builder.status(200);
-                    response_builder = response_builder.header("Content-Type", "application/json");
-                    if add_nc_time_header {
-                        response_builder = response_builder.header("NC-time", res.time.to_string());
-                    }
-                    let response = response_builder
-                        .body(body_from(format!("{:?}", res.result)))
-                        .expect("Failed to build 200 response");
+                    let response = build_json_response(
+                        res.time,
+                        add_nc_time_header,
+                        format!("{:?}", res.result),
+                    );
                     Ok(response)
                 }
                 .await;
@@ -165,15 +175,8 @@ async fn handle(
                     .context("Failed to decode image")?
                     .to_rgb8();
                 let res = run(img, model).await?;
-                let mut response_builder = Response::builder();
-                response_builder = response_builder.status(200);
-                response_builder = response_builder.header("Content-Type", "application/json");
-                if add_nc_time_header {
-                    response_builder = response_builder.header("NC-time", res.time.to_string());
-                }
-                let response = response_builder
-                    .body(body_from(format!("{:?}", res.result)))
-                    .expect("Failed to build 200 response");
+                let response =
+                    build_json_response(res.time, add_nc_time_header, format!("{:?}", res.result));
                 Ok(response)
             }
             .await;
