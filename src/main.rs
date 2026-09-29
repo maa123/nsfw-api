@@ -76,7 +76,7 @@ async fn run(
     img: image::ImageBuffer<image::Rgb<u8>, Vec<u8>>,
     model: Graph<TypedFact, Box<dyn TypedOp>>,
 ) -> Result<CheckResult> {
-    let plan = SimplePlan::new(model).context("Failed to create inference plan")?;
+    let plan = model.into_runnable().context("Failed to create inference plan")?;
     let start = Instant::now();
     let img = image::imageops::resize(&img, 224, 224, image::imageops::FilterType::Triangle);
     let image: Tensor = tract_ndarray::Array4::from_shape_fn((1, 3, 224, 224), |(_, c, y, x)| {
@@ -87,7 +87,7 @@ async fn run(
         .run(tvec!(image.into()))
         .context("Failed to run model inference")?;
     let result: Vec<f32> = result[0]
-        .to_array_view::<f32>()
+        .to_plain_array_view::<f32>()
         .context("Failed to read inference result")?
         .iter()
         .copied()
